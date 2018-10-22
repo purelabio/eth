@@ -110,6 +110,17 @@ See the "AbiMethod" definition.
 type Abi []AbiMethod
 
 /*
+^^^
+Implementation note for later reconsideration. Defining this type as a slice of
+method definitions is conceptually simple and corresponds 1-to-1 to the JSON,
+allowing reversible deserialization and serialization. The downside is that
+looking for function and event definitions requires us to loop through the
+slice, comparing each item by name. The obvious alternative, using pre-built
+lookup maps, is several times faster, but breaks this nice, reversible
+simplicity, and is also dominated by the costs of ABI encoding and decoding.
+*/
+
+/*
 Parses an ABI definition. The input must be JSON from a Solidity compiler.
 Panics on failure. Convenient for initializing global variables on startup:
 

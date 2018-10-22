@@ -53,7 +53,7 @@ func EthGetBlockByHash(ctx context.Context, trans Trans, hash Hash) (BlockHead, 
 
 /*
 Variant of "EthGetBlockByHash" with deduplication and caching. For any given
-hash, the corresponding block is fetched no more than once, and ceched forever.
+hash, the corresponding block is fetched no more than once, and cached forever.
 
 Note: this is implemented only for block hash, not block number. The "hash ↔︎
 block" association is unique and immutable, while the "blockNumber ↔︎ block"

@@ -57,6 +57,10 @@ type Trans interface {
 Chooses the appropriate transport for the given URL/path. Waits until connected,
 if possible. The optional logger is used for background logging, if that's
 relevant for the chosen transport.
+
+Note: you're meant to dial once and use that transport instance for all RPC
+calls. Some transports, namely WsTrans, start a persistent background loop.
+Dialing more than once is unnecessary and would be a resource leak.
 */
 func Dial(rpcPath string, logger *log.Logger) (Trans, error) {
 	rpcUrl, err := url.Parse(rpcPath)
@@ -153,8 +157,7 @@ type WsTrans struct {
 /*
 Attempts to establish a websocket connection to the RPC node at the given URL.
 Waits until the connection is established. Note: this starts a persistent
-background loop; for now, there's no way to stop an active websocket transport;
-don't make more than you need.
+background loop. You're meant to leave it running forever.
 */
 func DialWs(url url.URL, logger *log.Logger) (*WsTrans, error) {
 	transport := &WsTrans{
@@ -313,8 +316,8 @@ func (self *WsTrans) send(id string, method string, params ...interface{}) error
 }
 
 /*
-Creates a subscription with the given params, sending raw messages over the
-provided channel. The caller is expected to handle decoding on their own.
+Creates a subscription with the given params, sending raw payloads over the
+provided channel. The caller is expected to handle decoding.
 
 See https://wiki.parity.io/JSONRPC-eth_pubsub-module.html for details on the
 Ethereum subscriptions API.
@@ -333,7 +336,9 @@ func (self *WsTrans) Subscribe(ctx context.Context, out chan []byte, params ...i
 	if subId == "" {
 		return errors.New("failed to subscribe: received empty subscription ID")
 	}
+
 	defer func() {
+		// Unsubscribe asynchronously to avoid blocking the caller.
 		go self.send(randomId(), "eth_unsubscribe", subId)
 	}()
 

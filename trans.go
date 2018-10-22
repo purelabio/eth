@@ -3,10 +3,10 @@ package eth
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"sync"
@@ -400,9 +400,17 @@ func (self *WsTrans) clearSubs(err error) {
 	self.subs = map[string]chan either{}
 }
 
+var (
+	rnd     = rand.New(rand.NewSource(time.Now().UnixNano()))
+	rndLock sync.Mutex
+)
+
+// Tens of times faster than "crypto/rand". Is this sufficiently random?
 func randomId() string {
 	var buf Word
-	rand.Read(buf[:])
+	rndLock.Lock()
+	rnd.Read(buf[:])
+	rndLock.Unlock()
 	return buf.String()
 }
 

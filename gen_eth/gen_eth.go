@@ -1,5 +1,5 @@
 /*
-This is a CLI tool that reads Solidity contracts as *.sol files and outputs ABI
+A CLI tool that reads Solidity contracts as *.sol files and outputs ABI
 definitions as *.go code. Requires a Solidity compiler; see the documentation at
 https://solidity.readthedocs.io
 
@@ -16,13 +16,15 @@ To use with "go generate", include a "go:generate" comment in your source code:
 
 	//go:generate gen_eth -out gen_contracts.go sol/Test.sol:Test
 
-The generated file contains pre-compiled code and ABI definitions in various
-formats: parsed ABI data structure, JSON string, code as bytes, code as
-hex-encoded string. The solc compiler is invoked with "--optimize".
+The generated file contains ABI definitions and contract code in various
+formats: Abi data structure, JSON ABI string, contract code as bytes, contract
+code as hex-encoded string. The solc compiler is invoked with "--optimize".
 
-Unlike a similar tool in "github.com/ethereum/go-ethereum", this doesn't attempt
-to generate Go code with strongly-typed versions of Solidity methods. Such
-functionality may be added in the future, if there's demand.
+The generated code doesn't contain any function calls and has no impact on the
+program startup.
+
+Currently, this doesn't attempt to generate callable contract methods or event
+definitions. Such functionality may be added in the future, if there's demand.
 */
 package main
 
@@ -39,30 +41,32 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/Mitranim/repr"
 	"github.com/pkg/errors"
 	"github.com/purelabio/eth"
-)
-
-const (
-	fileReadWriteMode = os.FileMode(0600)
 )
 
 var (
 	flagSolc = flag.String("solc", "solc", "Solidity compiler; can be overridden with the SOLC environment variable")
 	flagOut  = flag.String("out", "", "output path for the generated Go file (required)")
 	flagPkg  = flag.String("pkg", "main", "package name for the generated code")
+	flagSelf = flag.Bool("self", false, "generate without imports or package prefixes")
 )
 
 var codeTemplate = template.Must(template.New("").
-	Funcs(template.FuncMap{"prettyBytes": prettyBytes}).
+	Funcs(template.FuncMap{
+		"pkgPrefix": pkgPrefix,
+		"repr":      reprString,
+		"reprBytes": func(input []byte) string { return reprString(input) },
+	}).
 	Parse(`
 {{range .}}
 
-var {{.ContractName}}Abi = eth.MustParseAbiJson({{.ContractName}}AbiJson)
+var {{.ContractName}}Abi = {{.Abi | repr}}
 
 const {{.ContractName}}AbiJson = ` + "`" + `{{.AbiJson}}` + "`" + `
 
-var {{.ContractName}}Code = {{.Code | prettyBytes}}
+var {{.ContractName}}Code = {{.Code | reprBytes}}
 
 const {{.ContractName}}CodeHex = ` + "`" + `{{.Code.String}}` + "`" + `
 
@@ -156,7 +160,7 @@ Specs must have the form "filePath:contractName". Examples:
 	defs = filteredDefs
 
 	for key, def := range defs {
-		def.AbiJson, err = prettifyJson(def.AbiJson)
+		def.AbiJson, err = prettyJson(def.AbiJson)
 		if err != nil {
 			panic(err)
 		}
@@ -165,7 +169,9 @@ Specs must have the form "filePath:contractName". Examples:
 
 	buf.Reset()
 	fmt.Fprintf(&buf, "package %v\n", *flagPkg)
-	buf.WriteString(`import "github.com/purelabio/eth"` + "\n")
+	if !*flagSelf {
+		buf.WriteString(`import "github.com/purelabio/eth"` + "\n")
+	}
 
 	err = codeTemplate.Execute(&buf, defs)
 	if err != nil {
@@ -177,7 +183,8 @@ Specs must have the form "filePath:contractName". Examples:
 		panic(err)
 	}
 
-	err = ioutil.WriteFile(*flagOut, source, fileReadWriteMode)
+	const readWriteMode = os.FileMode(0600)
+	err = ioutil.WriteFile(*flagOut, source, readWriteMode)
 	if err != nil {
 		return errors.Wrapf(err, "failed to write %q", *flagOut)
 	}
@@ -195,52 +202,27 @@ func sortedDefNames(defs map[string]eth.ContractDef) []string {
 	return names
 }
 
-func prettifyJson(input string) (string, error) {
+func prettyJson(input string) (string, error) {
 	var val interface{}
 	err := json.Unmarshal([]byte(input), &val)
 	pretty, err := json.MarshalIndent(val, "", "\t")
 	return string(pretty), err
 }
 
-// Same as fmt.Sprintf("%#02v", input), but multiline: large inputs are printed
-// as a column with 8 bytes per row.
-func prettyBytes(input []byte) string {
-	const hexDigits = "0123456789abcdef"
-
-	if input == nil {
-		return "[]byte(nil)"
+func pkgPrefix() string {
+	if *flagSelf {
+		return ""
 	}
+	return "eth."
+}
 
-	if len(input) == 0 {
-		return "[]byte{}"
+func reprString(val interface{}) string {
+	if *flagSelf {
+		return repr.StringC(val, repr.Config{
+			PackageMap: map[string]string{
+				"github.com/purelabio/eth": "",
+			},
+		})
 	}
-
-	multi := len(input) > 8
-	var buf strings.Builder
-	buf.WriteString("[]byte{")
-
-	for i, char := range input {
-		if !multi {
-			if i > 0 {
-				buf.WriteString(", ")
-			}
-		} else {
-			if i == 0 {
-				buf.WriteString("\n\t")
-			} else if i%8 == 0 {
-				buf.WriteString(",\n\t")
-			} else {
-				buf.WriteString(", ")
-			}
-		}
-		buf.WriteString("0x")
-		buf.WriteByte(hexDigits[int(char>>4)])
-		buf.WriteByte(hexDigits[int(char&^0xf0)])
-	}
-	if multi {
-		buf.WriteString(",\n")
-	}
-	buf.WriteByte('}')
-
-	return buf.String()
+	return repr.String(val)
 }

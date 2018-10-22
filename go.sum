@@ -1,3 +1,5 @@
+github.com/Mitranim/repr v0.0.0-20181022121435-865ccc6b6485 h1:+XQM/zryb2sCTfiU5+c00rNM1ggzqN5MVlsD+XPUH0c=
+github.com/Mitranim/repr v0.0.0-20181022121435-865ccc6b6485/go.mod h1:4EcyKxUMjj8b21yI1fiF+KXC+aN165nPHp08D6c0+BA=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/gorilla/websocket v1.4.0 h1:WDFjx/TMzVgy9VdMMQi2K2Emtwi2QcUQsztZ/zLaH/Q=

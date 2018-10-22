@@ -286,10 +286,7 @@ transaction payload, i.e. "TxMsg.Data". Returns an error in case of arity or
 type mismatch.
 */
 func (self AbiFunction) Marshal(args ...interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	buf.Write(self.Selector[:])
-	err := abiEncodeTuple(&buf, self.Inputs, args)
-	return buf.Bytes(), err
+	return abiAppendTuple(self.Selector[:], self.Inputs, args)
 }
 
 /*
@@ -522,20 +519,20 @@ log filtering). This is used internally, and shouldn't be necessary for most
 users.
 */
 func AbiParamsChecksum(name string, params []AbiParam) []byte {
-	var buf bytes.Buffer
+	var buf []byte
 
-	buf.WriteString(name)
-	buf.WriteByte('(')
+	buf = append(buf, name...)
+	buf = append(buf, '(')
 	for i, param := range params {
-		buf.WriteString(param.Type)
+		buf = append(buf, param.Type...)
 		if i < len(params)-1 {
-			buf.WriteByte(',')
+			buf = append(buf, ',')
 		}
 	}
-	buf.WriteByte(')')
+	buf = append(buf, ')')
 
 	hash := sha3.NewLegacyKeccak256()
-	hash.Write(buf.Bytes())
+	hash.Write(buf)
 	return hash.Sum(nil)
 }
 
@@ -720,22 +717,17 @@ ABI-encodes an arbitrary Go value, using the provided spec. Returns an error in
 case of type mismatch.
 */
 func AbiMarshal(atype AbiType, input interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	err := abiEncode(&buf, atype, reflect.ValueOf(input))
-	return buf.Bytes(), err
+	return abiAppend(nil, atype, reflect.ValueOf(input))
 }
 
-func abiEncode(out io.Writer, atype AbiType, val reflect.Value) error {
+func abiAppend(out []byte, atype AbiType, val reflect.Value) ([]byte, error) {
 	val = deref(val)
 	input := val.Interface()
 
 	mar, ok := input.(AbiMarshaler)
 	if ok {
 		chunk, err := mar.EthAbiMarshal()
-		if err == nil {
-			out.Write(chunk)
-		}
-		return err
+		return append(out, chunk...), err
 	}
 
 	typ := val.Type()
@@ -744,77 +736,75 @@ func abiEncode(out io.Writer, atype AbiType, val reflect.Value) error {
 	case AbiKindBool:
 		if typ.Kind() == reflect.Bool {
 			if val.Bool() {
-				out.Write(trueWord[:])
-			} else {
-				out.Write(falseWord[:])
+				return append(out, trueWord[:]...), nil
 			}
-			return nil
+			return append(out, falseWord[:]...), nil
 		}
-		return errors.New(typeMismatch(atype.Type, typ))
+		return out, errors.New(typeMismatch(atype.Type, typ))
 
 	case AbiKindUint:
 		switch typ.Kind() {
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			return abiEncodeUint64(out, val.Uint())
+			return abiAppendUint64(out, val.Uint()), nil
 		}
 
 		switch input := input.(type) {
 		case *big.Int:
-			return abiEncodeBigInt(out, input)
+			return abiAppendBigInt(out, input)
 		case *HexInt:
-			return abiEncodeBigInt(out, (*big.Int)(input))
+			return abiAppendBigInt(out, (*big.Int)(input))
 		}
 
 		if typ.ConvertibleTo(bigIntPtrType) {
-			return abiEncodeBigInt(out, val.Convert(bigIntPtrType).Interface().(*big.Int))
+			return abiAppendBigInt(out, val.Convert(bigIntPtrType).Interface().(*big.Int))
 		}
 
-		return errors.New(typeMismatch(atype.Type, typ))
+		return out, errors.New(typeMismatch(atype.Type, typ))
 
 	case AbiKindInt:
 		switch typ.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			return abiEncodeInt64(out, val.Int())
+			return abiAppendInt64(out, val.Int()), nil
 		}
 
 		switch input := input.(type) {
 		case *big.Int:
-			return abiEncodeBigInt(out, input)
+			return abiAppendBigInt(out, input)
 		case *HexInt:
-			return abiEncodeBigInt(out, (*big.Int)(input))
+			return abiAppendBigInt(out, (*big.Int)(input))
 		}
 
 		if typ.ConvertibleTo(bigIntPtrType) {
-			return abiEncodeBigInt(out, val.Convert(bigIntPtrType).Interface().(*big.Int))
+			return abiAppendBigInt(out, val.Convert(bigIntPtrType).Interface().(*big.Int))
 		}
 
-		return errors.New(typeMismatch(atype.Type, typ))
+		return out, errors.New(typeMismatch(atype.Type, typ))
 
 	case AbiKindAddress:
 		switch input := input.(type) {
 		case Address:
-			return writeLeftPadded(out, input[:])
+			return appendLeftPadded(out, input[:]), nil
 		}
 
 		if typ.ConvertibleTo(addressType) {
 			input := val.Convert(addressType).Interface().(Address)
-			return writeLeftPadded(out, input[:])
+			return appendLeftPadded(out, input[:]), nil
 		}
 
-		return errors.New(typeMismatch(atype.Type, typ))
+		return out, errors.New(typeMismatch(atype.Type, typ))
 
 	case AbiKindFunction:
 		switch input := input.(type) {
 		case solFunc:
-			return writeRightPadded(out, input[:])
+			return appendRightPadded(out, input[:]), nil
 		}
 
 		if typ.ConvertibleTo(functionType) {
 			input := val.Convert(functionType).Interface().(Address)
-			return writeRightPadded(out, input[:])
+			return appendRightPadded(out, input[:]), nil
 		}
 
-		return errors.New(typeMismatch(atype.Type, typ))
+		return out, errors.New(typeMismatch(atype.Type, typ))
 
 	case AbiKindDenseArray:
 		if atype.FixedLen {
@@ -824,9 +814,9 @@ func abiEncode(out io.Writer, atype AbiType, val reflect.Value) error {
 				typ.Len() == length {
 				slice := reflect.MakeSlice(byteSliceType, length, length)
 				reflect.Copy(slice, val)
-				return writeRightPadded(out, slice.Bytes())
+				return appendRightPadded(out, slice.Bytes()), nil
 			}
-			return errors.New(typeMismatch(atype.Type, typ))
+			return out, errors.New(typeMismatch(atype.Type, typ))
 		}
 
 		var input []byte
@@ -840,11 +830,11 @@ func abiEncode(out io.Writer, atype AbiType, val reflect.Value) error {
 		} else if typ.ConvertibleTo(byteSliceType) {
 			input = val.Convert(byteSliceType).Bytes()
 		} else {
-			return errors.New(typeMismatch(atype.Type, typ))
+			return out, errors.New(typeMismatch(atype.Type, typ))
 		}
 
-		abiEncodeInt64(out, int64(len(input)))
-		return writeRightPadded(out, input)
+		out = abiAppendInt64(out, int64(len(input)))
+		return appendRightPadded(out, input), nil
 
 	case AbiKindSparseArray:
 		// Note: for sparse arrays, this is element count, not byte count
@@ -852,47 +842,47 @@ func abiEncode(out io.Writer, atype AbiType, val reflect.Value) error {
 		if atype.FixedLen {
 			length = atype.ArrayLen
 			if !(typ.Kind() == reflect.Array && typ.Len() == length) {
-				return errors.New(typeMismatch(atype.Type, typ))
+				return out, errors.New(typeMismatch(atype.Type, typ))
 			}
 		} else {
 			if typ.Kind() != reflect.Slice {
-				return errors.New(typeMismatch(atype.Type, typ))
+				return out, errors.New(typeMismatch(atype.Type, typ))
 			}
 			length = val.Len()
-			abiEncodeInt64(out, int64(length))
+			out = abiAppendInt64(out, int64(length))
 		}
 
 		if atype.Elem.IsStaticallySized() {
 			for i := 0; i < length; i++ {
-				err := abiEncode(out, *atype.Elem, val.Index(i))
+				var err error
+				out, err = abiAppend(out, *atype.Elem, val.Index(i))
 				if err != nil {
-					return err
+					return out, err
 				}
 			}
-			return nil
+			return out, nil
 		}
 
-		var buf bytes.Buffer
+		var buf []byte
 		var heap []byte
 		heapOffset := length * (256 / 8)
 
 		for i := 0; i < length; i++ {
-			buf.Reset()
-			err := abiEncode(&buf, *atype.Elem, val.Index(i))
+			buf = buf[:]
+			buf, err := abiAppend(buf, *atype.Elem, val.Index(i))
 			if err != nil {
-				return err
+				return out, err
 			}
-			abiEncodeInt64(out, int64(heapOffset))
-			tail := buf.Bytes()
-			heap = append(heap, tail...)
-			heapOffset += len(tail)
+			out = abiAppendInt64(out, int64(heapOffset))
+			heap = append(heap, buf...)
+			heapOffset += len(buf)
 		}
 
-		out.Write(heap)
-		return nil
+		out = append(out, heap...)
+		return out, nil
 
 	default:
-		return errors.New(typeMismatch(atype.Type, typ))
+		return out, errors.New(typeMismatch(atype.Type, typ))
 	}
 }
 
@@ -1192,14 +1182,12 @@ ABI-encodes multiple values, typically parameters to a method call. Returns an
 error in case of arity mismatch, type mismatch, or malformed input.
 */
 func AbiMarshalTuple(params []AbiParam, args ...interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	err := abiEncodeTuple(&buf, params, args)
-	return buf.Bytes(), err
+	return abiAppendTuple(nil, params, args)
 }
 
-func abiEncodeTuple(out io.Writer, params []AbiParam, inputs []interface{}) error {
+func abiAppendTuple(out []byte, params []AbiParam, inputs []interface{}) ([]byte, error) {
 	if len(params) != len(inputs) {
-		return errors.Errorf(`arity mismatch: expected %v inputs, got %v`, len(params), len(inputs))
+		return out, errors.Errorf(`arity mismatch: expected %v inputs, got %v`, len(params), len(inputs))
 	}
 
 	heapOffset := 0
@@ -1212,36 +1200,34 @@ func abiEncodeTuple(out io.Writer, params []AbiParam, inputs []interface{}) erro
 		}
 	}
 
-	var buf bytes.Buffer
+	var buf []byte
 	var heap []byte
 
 	for i, param := range params {
-		buf.Reset()
-		err := abiEncode(&buf, param.AbiType, deref(reflect.ValueOf(inputs[i])))
+		buf = buf[:]
+		buf, err := abiAppend(buf, param.AbiType, deref(reflect.ValueOf(inputs[i])))
 		if err != nil {
-			return errors.Wrapf(err, `failed to encode param %v of type %q`, i, param.Type)
+			return out, errors.Wrapf(err, `failed to encode param %v of type %q`, i, param.Type)
 		}
 
-		coded := buf.Bytes()
-		if len(coded)%(256/8) != 0 {
-			return errors.Errorf(`internal error while encoding param %v of type %q: expected output to be %v-byte-aligned, found length %v`, i, param.Type, 256/8, len(coded))
+		if len(buf)%(256/8) != 0 {
+			return out, errors.Errorf(`internal error while encoding param %v of type %q: expected output to be %v-byte-aligned, found length %v`, i, param.Type, 256/8, len(buf))
 		}
 
 		size := param.AbiType.Size()
 		if size >= 0 {
-			if len(coded) != size {
-				return errors.Errorf(`internal error while encoding param %v of type %q: expected output size to be %v bytes, found %v bytes`, i, param.Type, size, len(coded))
+			if len(buf) != size {
+				return out, errors.Errorf(`internal error while encoding param %v of type %q: expected output size to be %v bytes, found %v bytes`, i, param.Type, size, len(buf))
 			}
-			out.Write(coded)
+			out = append(out, buf...)
 		} else {
-			abiEncodeInt64(out, int64(heapOffset))
-			heap = append(heap, coded...)
-			heapOffset += len(coded)
+			out = abiAppendInt64(out, int64(heapOffset))
+			heap = append(heap, buf...)
+			heapOffset += len(buf)
 		}
 	}
 
-	out.Write(heap)
-	return nil
+	return append(out, heap...), nil
 }
 
 /*
@@ -1316,8 +1302,6 @@ func abiPaddingDelta(length int) int {
 }
 
 var (
-	zero = []byte{0}
-
 	zeros32 [8]byte
 
 	ones32 = func() [8]byte {
@@ -1329,47 +1313,49 @@ var (
 	}()
 )
 
-func writeLeftPadded(out io.Writer, buf []byte) error {
+func appendLeftPadded(out []byte, buf []byte) []byte {
 	delta := abiPaddingDelta(len(buf))
 	for delta > 0 {
-		out.Write(zero)
+		out = append(out, 0)
 		delta--
 	}
-	out.Write(buf)
-	return nil
+	return append(out, buf...)
 }
 
-func writeRightPadded(out io.Writer, buf []byte) error {
-	out.Write(buf)
+func appendRightPadded(out []byte, buf []byte) []byte {
+	out = append(out, buf...)
 	delta := abiPaddingDelta(len(buf))
 	for delta > 0 {
-		out.Write(zero)
+		out = append(out, 0)
 		delta--
 	}
-	return nil
+	return out
 }
 
-func abiEncodeUint64(out io.Writer, num uint64) error {
-	out.Write(zeros32[:])
-	out.Write(zeros32[:])
-	out.Write(zeros32[:])
-	binary.Write(out, binary.BigEndian, num)
-	return nil
+func abiAppendUint64(out []byte, num uint64) []byte {
+	out = append(out, zeros32[:]...)
+	out = append(out, zeros32[:]...)
+	out = append(out, zeros32[:]...)
+	out = append(out, zeros32[:]...)
+	binary.BigEndian.PutUint64(out[len(out)-64/8:], num)
+	return out
 }
 
-func abiEncodeInt64(out io.Writer, num int64) error {
+func abiAppendInt64(out []byte, num int64) []byte {
 	if num < 0 {
-		out.Write(ones32[:])
-		out.Write(ones32[:])
-		out.Write(ones32[:])
+		out = append(out, ones32[:]...)
+		out = append(out, ones32[:]...)
+		out = append(out, ones32[:]...)
+		out = append(out, zeros32[:]...)
 	} else {
-		out.Write(zeros32[:])
-		out.Write(zeros32[:])
-		out.Write(zeros32[:])
+		out = append(out, zeros32[:]...)
+		out = append(out, zeros32[:]...)
+		out = append(out, zeros32[:]...)
+		out = append(out, zeros32[:]...)
 	}
 	// Note: uint64(int64) reinterprets the bytes as-is.
-	binary.Write(out, binary.BigEndian, uint64(num))
-	return nil
+	binary.BigEndian.PutUint64(out[len(out)-64/8:], uint64(num))
+	return out
 }
 
 var (
@@ -1387,8 +1373,8 @@ var (
 )
 
 // Has avoidable allocations, TODO improve.
-func abiEncodeBigInt(out io.Writer, num *big.Int) error {
-	var buf Word
+func abiAppendBigInt(out []byte, num *big.Int) ([]byte, error) {
+	var word Word
 
 	neg := num.Cmp(bigZero) < 0
 	if neg {
@@ -1396,24 +1382,23 @@ func abiEncodeBigInt(out io.Writer, num *big.Int) error {
 	}
 
 	slice := num.Bytes()
-	if len(slice) > len(buf) ||
+	if len(slice) > len(word) ||
 		// If the top bit is used for the natural number, we can't use it for
 		// the int256's sign.
-		len(slice) == len(buf) && ((slice[0]&0x80) != 0) {
-		return errors.Errorf("%v overflows int256", num.String())
+		len(slice) == len(word) && ((slice[0]&0x80) != 0) {
+		return out, errors.Errorf("%v overflows int256", num.String())
 	}
 
-	copy(buf[len(buf)-len(slice):], slice)
+	copy(word[len(word)-len(slice):], slice)
 	if neg {
-		words := (*[256 / 8 / 8]uint64)(unsafe.Pointer(&buf))
-		words[0] = ^words[0]
-		words[1] = ^words[1]
-		words[2] = ^words[2]
-		words[3] = ^words[3]
+		uints := (*[256 / 8 / 8]uint64)(unsafe.Pointer(&word))
+		uints[0] = ^uints[0]
+		uints[1] = ^uints[1]
+		uints[2] = ^uints[2]
+		uints[3] = ^uints[3]
 	}
 
-	out.Write(buf[:])
-	return nil
+	return append(out, word[:]...), nil
 }
 
 func deref(val reflect.Value) reflect.Value {

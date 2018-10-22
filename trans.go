@@ -144,7 +144,7 @@ type WsTrans struct {
 
 	// Unavoidable bottleneck
 	writeLock sync.Mutex
-	Conn      *websocket.Conn
+	conn      *websocket.Conn
 
 	// Possibly avoidable bottleneck, TODO revise.
 	subLock sync.Mutex
@@ -200,14 +200,14 @@ func (self *WsTrans) connect() error {
 		return errors.WithStack(err)
 	}
 
-	self.Conn = conn
+	self.conn = conn
 	close(self.connected)
 
 	return nil
 }
 
 func (self *WsTrans) receiveLoop() error {
-	conn := self.Conn
+	conn := self.conn
 
 	defer func() {
 		self.connected = make(chan struct{})
@@ -305,7 +305,7 @@ func (self *WsTrans) Call(ctx context.Context, out interface{}, method string, p
 func (self *WsTrans) send(id string, method string, params ...interface{}) error {
 	self.writeLock.Lock()
 	defer self.writeLock.Unlock()
-	err := self.Conn.WriteJSON(rpcRequest{
+	err := self.conn.WriteJSON(rpcRequest{
 		Jsonrpc: jsonRpcVersion,
 		Id:      id,
 		Method:  method,

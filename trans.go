@@ -119,9 +119,8 @@ func (self HttpTrans) Call(ctx context.Context, out interface{}, method string, 
 	if err != nil {
 		return errors.Wrap(err, "failed to decode RPC response")
 	}
-	// Note: `error((*RpcError)(nil)) != nil` !!!
 	if rpcRes.Error != nil {
-		return errors.WithStack(rpcRes.Error)
+		return errors.WithStack(*rpcRes.Error)
 	}
 	return nil
 }
@@ -243,9 +242,8 @@ func (self *WsTrans) receiveLoop() error {
 				continue
 			}
 
-			// Note: `error((*RpcError)(nil)) != nil` !!!
 			if res.Error != nil {
-				err = errors.WithStack(res.Error)
+				err = errors.WithStack(*res.Error)
 			}
 
 			self.dispatchToSub(head.Id, []byte(body), err)

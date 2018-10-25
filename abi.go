@@ -761,13 +761,13 @@ func abiAppend(out []byte, atype AbiType, val reflect.Value) ([]byte, error) {
 
 		switch input := input.(type) {
 		case *big.Int:
-			return abiAppendBigInt(out, input)
+			return abiAppendBigUint(out, input)
 		case *HexInt:
-			return abiAppendBigInt(out, (*big.Int)(input))
+			return abiAppendBigUint(out, (*big.Int)(input))
 		}
 
 		if typ.ConvertibleTo(bigIntPtrType) {
-			return abiAppendBigInt(out, val.Convert(bigIntPtrType).Interface().(*big.Int))
+			return abiAppendBigUint(out, val.Convert(bigIntPtrType).Interface().(*big.Int))
 		}
 
 		return out, errors.New(typeMismatch(atype.Type, typ))
@@ -1383,24 +1383,47 @@ var (
 	bigOne  = big.NewInt(1)
 )
 
-// Has avoidable allocations, TODO improve.
+func abiAppendBigUint(out []byte, num *big.Int) ([]byte, error) {
+	var word Word
+
+	if num.Cmp(bigZero) < 0 {
+		return out, errors.Errorf("%v overflows uint256", num.String())
+	}
+
+	slice := num.Bytes()
+	if len(slice) > len(word) {
+		return out, errors.Errorf("%v overflows uint256", num.String())
+	}
+
+	copy(word[len(word)-len(slice):], slice)
+	return append(out, word[:]...), nil
+}
+
 func abiAppendBigInt(out []byte, num *big.Int) ([]byte, error) {
 	var word Word
 
 	neg := num.Cmp(bigZero) < 0
 	if neg {
+		// The +1 is required for the bit flipping from natural number to
+		// negative number below. TODO: this is an avoidable allocation; we
+		// could do it manually on the Word.
 		num = new(big.Int).Add(num, bigOne)
 	}
 
 	slice := num.Bytes()
 	if len(slice) > len(word) ||
-		// If the top bit is used for the natural number, we can't use it for
-		// the int256's sign.
+		// The number is not representable as a int256 if either: (1) the number
+		// is positive and the top bit is set; (2) the number is negative and
+		// the top bit is set after adding +1 to the natural number. Note that
+		// `big.Int` stores the sign separately, as a bool.
 		len(slice) == len(word) && ((slice[0]&0x80) != 0) {
 		return out, errors.Errorf("%v overflows int256", num.String())
 	}
 
 	copy(word[len(word)-len(slice):], slice)
+
+	// Flip all the bits for the 2-complement representation. Note that this
+	// relies on the +1 above.
 	if neg {
 		uints := (*[256 / 8 / 8]uint64)(unsafe.Pointer(&word))
 		uints[0] = ^uints[0]

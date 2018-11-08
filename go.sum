@@ -1,9 +1,9 @@
-github.com/Mitranim/repr v0.0.0-20181022121435-865ccc6b6485 h1:+XQM/zryb2sCTfiU5+c00rNM1ggzqN5MVlsD+XPUH0c=
-github.com/Mitranim/repr v0.0.0-20181022121435-865ccc6b6485/go.mod h1:4EcyKxUMjj8b21yI1fiF+KXC+aN165nPHp08D6c0+BA=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/gorilla/websocket v1.4.0 h1:WDFjx/TMzVgy9VdMMQi2K2Emtwi2QcUQsztZ/zLaH/Q=
 github.com/gorilla/websocket v1.4.0/go.mod h1:E7qHFY5m1UJ88s3WnNqhKjPHQ0heANvMoAMk2YaljkQ=
+github.com/mitranim/repr v0.0.0-20181106161538-227d8c7751ac h1:hIpupfLUqoYXcGgX8ISMSZFrJl1IL0mbWomPmPOP+6g=
+github.com/mitranim/repr v0.0.0-20181106161538-227d8c7751ac/go.mod h1:v2Pm4KgrUEtqxN1uR1TUMRgipAY0MXUEnz5t1e3aECs=
 github.com/pkg/errors v0.8.0 h1:WdK/asTD0HN+q6hsWO3/vpuAkAr+tw6aNJNDFFf0+qw=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 golang.org/x/crypto v0.0.0-20181015023909-0c41d7ab0a0e h1:IzypfodbhbnViNUO/MEh0FzCUooG97cIGfdggUrUSyU=

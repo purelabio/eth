@@ -41,7 +41,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/Mitranim/repr"
+	"github.com/mitranim/repr"
 	"github.com/pkg/errors"
 	"github.com/purelabio/eth"
 )
